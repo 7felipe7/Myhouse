@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>MyHouse: Ultra Save & Build (No Walls Passthrough)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: #87CEEB; touch-action: none; user-select: none; font-family: 'Arial', sans-serif; }
+        canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: block; }
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; color: white; }
+        
+        /* CONTROLES */
+        .ctrl-btn { width: 55px; height: 55px; background: #3c3c3c; border: 3px solid #1e1e1e; border-radius: 8px; display: flex; align-items: center; justify-content: center; pointer-events: auto; color: white; font-size: 24px; }
+        #dpad { position: absolute; bottom: 30px; left: 20px; display: grid; grid-template-columns: repeat(3, 55px); gap: 2px; }
+        #right-controls { position: absolute; bottom: 40px; right: 20px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+        .fly-up-btn, .fly-down-btn { width: 65px; height: 65px; border-radius: 50%; border: 3px solid #fff; pointer-events: auto; display: none; align-items: center; justify-content: center; font-size: 24px; }
+        .fly-up-btn { background: rgba(46, 204, 113, 0.7); }
+        .fly-down-btn { background: rgba(52, 152, 219, 0.7); }
+        .jump-btn { width: 85px; height: 85px; border-radius: 50%; background: rgba(60,60,60,0.6); border: 4px solid #fff; pointer-events: auto; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        
+        /* HUD */
+        #top-bar { position: absolute; top: 15px; width: 100%; display: flex; justify-content: space-between; padding: 0 15px; pointer-events: auto; }
+        .top-icon { width: 45px; height: 45px; background: rgba(0,0,0,0.5); border: 2px solid #ccc; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 24px; }
+        #hotbar { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); display: flex; background: rgba(0,0,0,0.7); padding: 5px; border-radius: 8px; pointer-events: auto; border: 2px solid #444; }
+        .slot { width: 48px; height: 48px; border: 2px solid #777; margin: 0 2px; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+        .slot.active { border-color: #fff; background: rgba(255,255,255,0.3); }
+        
+        /* INVENTARIO ⋮ */
+        #menu-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; height: 85%; background: #c6c6c6; border: 4px solid #373737; display: none; pointer-events: auto; z-index: 200; border-radius: 10px; overflow: hidden; }
+        .menu-header { padding: 10px; background: #373737; color: white; display: flex; justify-content: space-between; align-items: center; }
+        .grid-container { height: calc(100% - 60px); overflow-y: auto; padding: 15px; background: #8b8b8b; display: grid; grid-template-columns: repeat(auto-fill, minmax(65px, 1fr)); gap: 10px; }
+        .item-slot { width: 65px; height: 65px; background: #c6c6c6; border: 3px solid #373737; display: flex; align-items: center; justify-content: center; font-size: 35px; }
+        
+        #save-notif { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); background: #2ecc71; color: white; padding: 10px 20px; border-radius: 30px; display: none; z-index: 300; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+    <div id="save-notif">✅ ¡MUNDO GUARDADO!</div>
+    <div id="menu-panel">
+        <div class="menu-header"><span>ESTRUCTURAS ⋮</span><button onclick="saveGame()" style="background:#2ecc71; color:white; border:none; padding:8px 12px; border-radius:4px; font-weight:bold;">GUARDAR</button><button onclick="toggleMenu()" style="background:#e74c3c; color:white; border:none; padding:8px 15px; border-radius:4px;">CERRAR</button></div>
+        <div id="grid-content" class="grid-container"></div>
+    </div>
+    <div id="ui">
+        <div id="top-bar">
+            <div class="top-icon" onclick="toggleMenu()">⋮</div>
+            <div style="display:flex; gap:10px;">
+                <div class="top-icon" id="fly-toggle" onclick="toggleFly()">🚀</div>
+                <div class="top-icon" onclick="switchCam()">🎥</div>
+                <div class="top-icon" id="mode-btn" onclick="toggleMode()">⛏️</div>
+            </div>
+        </div>
+        <div id="dpad">
+            <div></div><div class="ctrl-btn" id="up">▲</div><div></div>
+            <div class="ctrl-btn" id="left">◀</div><div class="ctrl-btn" id="center">●</div><div class="ctrl-btn" id="right">▶</div>
+            <div></div><div class="ctrl-btn" id="down">▼</div><div></div>
+        </div>
+        <div id="right-controls"><div class="fly-up-btn" id="fly-up">↑</div><div class="fly-down-btn" id="fly-down">↓</div><div class="jump-btn" id="jump">SALTAR</div></div>
+        <div id="hotbar"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/josephg/noisejs@master/perlin.js"></script>
+    <script>
+        const BLOCKS_DEF = [
+            {n:'Pasto', c:0x5d994d, i:'🌿'}, {n:'Tierra', c:0x8b5a2b, i:'🟫'}, {n:'Piedra', c:0x7d7d7d, i:'🧱'},
+            {n:'Madera', c:0x5d4037, i:'🪵'}, {n:'Hojas', c:0x228b22, i:'🌳'}, {n:'Ladrillo', c:0xb22222, i:'🏮'},
+            {n:'Cristal', c:0xadd8e6, i:'⬜', t:true}, {n:'Lana Roja', c:0xff0000, i:'🟥'}, {n:'Lana Azul', c:0x0000ff, i:'🟦'},
+            {n:'Lana Amarilla', c:0xffff00, i:'🟨'}, {n:'Oro', c:0xffd700, i:'🟡'}, {n:'Diamante', c:0x00ffff, i:'💎'},
+            {n:'Obsidiana', c:0x2e0854, i:'⬛'}, {n:'Antorcha', c:0xffcc00, i:'🔦', light:true}, {n:'Cama', c:0xe91e63, i:'🛏️'}
+        ];
+
+        let isFP = true, isBuilding = false, isFlying = false, sel = 0, vY = 0, yaw = 0, pitch = 0;
+        let move = {f:0, b:0, l:0, r:0, u:0, d:0}, blocks = [], chunks = new Set(), quick = BLOCKS_DEF.slice(0, 7);
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 20, 60);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+        sun.position.set(20, 50, 20);
+        scene.add(sun);
+
+        // --- PERSONAJE ---
+        const player = new THREE.Group();
+        const skinMat = new THREE.MeshLambertMaterial({color: 0xffdbac});
+        const pBody = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.3), new THREE.MeshLambertMaterial({color: 0x3498db}));
+        const pHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
+        pHead.position.y = 0.55;
+        const pLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), new THREE.MeshLambertMaterial({color: 0x2c3e50}));
+        pLeg.position.set(-0.15, -0.6, 0);
+        const pLegR = pLeg.clone(); pLegR.position.x = 0.15;
+        player.add(pBody, pHead, pLeg, pLegR);
+        player.position.set(0, 20, 0); scene.add(player);
+
+        // --- COLISIONES ---
+        const playerSize = new THREE.Vector3(0.6, 1.8, 0.6);
+        function checkCollision(newPos) {
+            const pBox = new THREE.Box3().setFromCenterAndSize(newPos, playerSize);
+            for (let i = 0; i < blocks.length; i++) {
+                const bBox = new THREE.Box3().setFromObject(blocks[i]);
+                if (pBox.intersectsBox(bBox)) return true;
+            }
+            return false;
+        }
+
+        function addBlock(x, y, z, t, manual = false) {
+            let geo = (t.n === 'Antorcha') ? new THREE.BoxGeometry(0.2, 0.6, 0.2) : new THREE.BoxGeometry(1, 1, 1);
+            const b = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color: t.c, transparent: !!t.t, opacity: t.t?0.6:1}));
+            b.position.set(Math.round(x), Math.round(y), Math.round(z));
+            if(t.light) b.add(new THREE.PointLight(0xffaa00, 1.2, 8));
+            b.userData = {...t, manual}; scene.add(b); blocks.push(b);
+        }
+
+        noise.seed(Math.random());
+        function genChunk(cx, cz) {
+            if(chunks.has(`${cx},${cz}`)) return;
+            for(let x=cx*10; x<(cx+1)*10; x++) {
+                for(let z=cz*10; z<(cz+1)*10; z++) {
+                    let h = Math.floor(noise.perlin2(x/25, z/25) * 4) + 10;
+                    addBlock(x, h, z, BLOCKS_DEF[0]);
+                }
+            } chunks.add(`${cx},${cz}`);
+        }
+
+        // --- CONTROLES MÓVILES ---
+        const ray = new THREE.Raycaster();
+        const m = new THREE.Vector2();
+        let sX, sY, mD = 0, isT = false;
+
+        window.addEventListener('touchstart', e => { if(e.target.closest('#ui')) return; isT = true; sX = e.touches[0].clientX; sY = e.touches[0].clientY; mD = 0; });
+        window.addEventListener('touchmove', e => {
+            if(!isT) return;
+            let dx = e.touches[0].clientX - sX, dy = e.touches[0].clientY - sY;
+            mD += Math.sqrt(dx*dx + dy*dy); yaw -= dx*0.007; pitch = Math.max(-1.4, Math.min(1.4, pitch-dy*0.007));
+            sX = e.touches[0].clientX; sY = e.touches[0].clientY;
+        });
+        window.addEventListener('touchend', () => {
+            if(isT && mD < 10) {
+                m.x = (sX / window.innerWidth) * 2 - 1; m.y = -(sY / window.innerHeight) * 2 + 1;
+                ray.setFromCamera(m, camera);
+                const hits = ray.intersectObjects(blocks);
+                if(hits.length > 0 && hits[0].distance < 10) {
+                    if(isBuilding) {
+                        const p = hits[0].object.position.clone().add(hits[0].face.normal);
+                        addBlock(p.x, p.y, p.z, {...quick[sel], manual:true});
+                    } else {
+                        scene.remove(hits[0].object); blocks = blocks.filter(b => b !== hits[0].object);
+                    }
+                }
+            } isT = false;
+        });
+
+        // --- SISTEMA DE GUARDADO ---
+        function saveGame() {
+            const data = {
+                px: player.position.x, py: player.position.y, pz: player.position.z,
+                b: blocks.filter(b=>b.userData.manual).map(b=>({x:b.position.x, y:b.position.y, z:b.position.z, t:b.userData}))
+            };
+            localStorage.setItem('myHouse_WorldSave', JSON.stringify(data));
+            const n = document.getElementById('save-notif'); n.style.display='block';
+            setTimeout(()=>n.style.display='none', 2000);
+        }
+
+        function loadGame() {
+            const s = localStorage.getItem('myHouse_WorldSave'); if(!s) return;
+            const d = JSON.parse(s);
+            player.position.set(d.px, d.py, d.pz);
+            d.b.forEach(b => addBlock(b.x, b.y, b.z, b.t, true));
+        }
+
+        // --- UI Y CÁMARA ---
+        function toggleFly() { isFlying = !isFlying; vY = 0; document.querySelectorAll('.fly-up-btn, .fly-down-btn').forEach(b=>b.style.display=isFlying?'flex':'none'); document.getElementById('jump').style.display=isFlying?'none':'flex'; }
+        function toggleMode() { isBuilding = !isBuilding; document.getElementById('mode-btn').innerText = isBuilding ? '🧱' : '⛏️'; }
+        function toggleMenu() {
+            const p = document.getElementById('menu-panel'); p.style.display = p.style.display==='block'?'none':'block';
+            if(p.style.display==='block') {
+                const g = document.getElementById('grid-content'); g.innerHTML = '';
+                BLOCKS_DEF.forEach(it => {
+                    const d = document.createElement('div'); d.className='item-slot'; d.innerHTML=it.i;
+                    d.onclick = () => { quick[sel]=it; updateHotbar(); toggleMenu(); };
+                    g.appendChild(d);
+                });
+            }
+        }
+        function updateHotbar() {
+            const h = document.getElementById('hotbar'); h.innerHTML = '';
+            quick.forEach((t, i) => {
+                const s = document.createElement('div'); s.className=`slot ${i===sel?'active':''}`;
+                s.innerHTML=t.i; s.onclick=()=>{sel=i; updateHotbar();}; h.appendChild(s);
+            });
+        }
+        function switchCam() { isFP = !isFP; player.visible = !isFP; }
+
+        const bind = (id, k) => {
+            const e = document.getElementById(id);
+            e.ontouchstart = (ev) => { ev.preventDefault(); move[k]=1; }; e.ontouchend = (ev) => { ev.preventDefault(); move[k]=0; };
+        };
+        bind('up','f'); bind('down','b'); bind('left','l'); bind('right','r'); bind('fly-up','u'); bind('fly-down','d');
+        document.getElementById('jump').ontouchstart = () => { if(!isFlying && Math.abs(vY)<0.01) vY=0.22; };
+
+        // --- BUCLE PRINCIPAL ---
+        function animate() {
+            requestAnimationFrame(animate);
+            let nextPos = player.position.clone();
+
+            // Gravedad o Vuelo
+            if(!isFlying) {
+                vY -= 0.012;
+                nextPos.y += vY;
+                if(checkCollision(nextPos)) {
+                    nextPos.y = player.position.y;
+                    vY = 0;
+                }
+            } else {
+                if(move.u) nextPos.y += 0.22;
+                if(move.d) nextPos.y -= 0.22;
+                if(checkCollision(nextPos)) nextPos.y = player.position.y;
+            }
+            player.position.y = nextPos.y;
+
+            // Movimiento Lateral con detección de paredes
+            const d = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)), s = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), d);
+            let sideMove = new THREE.Vector3(0,0,0);
+            
+            if(move.f) sideMove.addScaledVector(d, -0.18);
+            if(move.b) sideMove.addScaledVector(d, 0.18);
+            if(move.l) sideMove.addScaledVector(s, -0.18);
+            if(move.r) sideMove.addScaledVector(s, 0.18);
+
+            let finalPos = player.position.clone().add(sideMove);
+            if(!checkCollision(finalPos)) {
+                player.position.add(sideMove);
+            } else {
+                // Deslizamiento simple por paredes
+                let slideX = player.position.clone(); slideX.x += sideMove.x;
+                if(!checkCollision(slideX)) player.position.x = slideX.x;
+                let slideZ = player.position.clone(); slideZ.z += sideMove.z;
+                if(!checkCollision(slideZ)) player.position.z = slideZ.z;
+            }
+
+            player.rotation.y = yaw;
+
+            if(isFP) { camera.position.copy(player.position).y += 0.6; camera.rotation.set(pitch, yaw, 0, 'YXZ'); }
+            else { camera.position.set(player.position.x+Math.sin(yaw)*6, player.position.y+4, player.position.z+Math.cos(yaw)*6); camera.lookAt(player.position); }
+
+            const px = Math.floor(player.position.x/10), pz = Math.floor(player.position.z/10);
+            for(let x=-2; x<=2; x++) for(let z=-2; z<=2; z++) genChunk(px+x, pz+z);
+            renderer.render(scene, camera);
+        }
+        updateHotbar(); loadGame(); animate();
+    </script>
+</body>
+</html>
